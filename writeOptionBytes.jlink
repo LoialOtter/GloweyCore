@@ -1,0 +1,20 @@
+; select device and interface
+device STM32L011G4
+si 1
+
+r
+
+; unlock PECR
+w4 0x4002200C, 0x89ABCDEF
+w4 0x4002200C, 0x02030405
+; unlock option bytes
+w4 0x40022014, 0xFBEAD9C8
+w4 0x40022014, 0x24252627
+
+; write option bytes
+; top half is inverse of bottom half
+w4 0x1FF80004, 0x1F8FE070
+
+r
+
+exit

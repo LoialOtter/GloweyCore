@@ -1,3 +1,11 @@
+# Project outputs
+.dep
+build
+debug
+
+# Temporary files
+*~
+
 # Prerequisites
 *.d
 
