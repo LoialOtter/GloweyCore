@@ -1,9 +1,9 @@
 # GloweyCore
 Firmware for the Glowey Cores made by Loial
 
-![Small Glowey Core](/docs/Small glowey core overall.jpg)
-![Small Glowey Core](/docs/Small glowey core.jpg)
-![Larger Glowey Core](/docs/Larger glowey core.jpg)
+![Small Glowey Core](docs/Small%20glowey%20core%20overall.jpg)
+![Small Glowey Core](docs/Small%20glowey%20core.jpg)
+![Larger Glowey Core](docs/Larger%20glowey%20core.jpg)
 
 -----------------------------
 
@@ -22,6 +22,6 @@ instead of the standard bootloader embedded in the CPU.
 Schematic
 ---------
 
-![Schematic](/docs/LED Crystals V4.0.pdf)
+[Schematic](docs/LED%20Crystals%20V4.0.pdf)
 
 
