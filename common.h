@@ -24,7 +24,16 @@
 #define NIL_THREAD_CTRL     2
 
 
-#define CTRL_EVT_WAKEUP (1<<0)
+#define CTRL_EVT_WAKEUP          (1 <<  0)
+#define CTRL_EVT_SHORT_B1        (1 <<  2)
+#define CTRL_EVT_LONG_B1         (1 <<  3)
+#define CTRL_EVT_SHORT_B2        (1 <<  4)
+#define CTRL_EVT_LONG_B2         (1 <<  5)
+#define CTRL_EVT_SHORT_B3        (1 <<  6)
+#define CTRL_EVT_LONG_B3         (1 <<  7)
+#define CTRL_EVT_SHORT_B4        (1 <<  8)
+#define CTRL_EVT_LONG_B4         (1 <<  9)
+#define CTRL_EVT_CHARGE_ATTACHED (1 << 16)
 
 
 // fill in some types I prefer having available
@@ -80,9 +89,9 @@ void hs_to_xy(u8 hue, u8 saturation, s16* out_x, s16* out_y);
 void xy_to_rgb(s16 x, s16 y, colour* out);
 
 
-typedef enum { STATE_INIT, STATE_RUNNING, STATE_SLEEPING, STATE_SAMPLE, STATE_UNDERVOLTAGE } state_type;
+typedef enum { STATE_INIT, STATE_RUNNING, STATE_CHARGESTATE, STATE_SLEEPING, STATE_UNDERVOLTAGE } state_type;
 
-typedef enum { MODE_STANDARD, MODE_RAINBOW, MODE_SHIMERING, MODE_PULSING, MODE_XYZ, MODE_HUESAT, MODE_CONFIG_BRIGHTNESS } mode_type;
+typedef enum { MODE_INVALID, MODE_STANDARD, MODE_RAINBOW, MODE_SHIMERING, MODE_PULSING, MODE_XYZ, MODE_HUESAT, MODE_CONFIG_BRIGHTNESS } mode_type;
 typedef enum { CONFIG_OFF, CONFIG_MODE, CONFIG_DOWN_COLOUR, CONFIG_SIDE_COLOUR, CONFIG_ACTION_COLOUR, CONFIG_BRIGHTNESS, CONFIG_PULSING_SPEED, CONFIG_PULSING_JITTER } config_state_type;
 
 #define EEPROM_ADDR_COLOUR_DOWN   0
@@ -94,6 +103,8 @@ typedef enum { CONFIG_OFF, CONFIG_MODE, CONFIG_DOWN_COLOUR, CONFIG_SIDE_COLOUR, 
 typedef struct {
 	mode_type mode;
 	mode_type last_mode;
+	state_type state;
+	state_type last_state;
 	config_state_type config_state;
 	u8 config_time;
 	u8 active_time;
@@ -114,6 +125,14 @@ typedef struct {
 	unsigned charge_status_acknowledged_received : 1;
 
 	unsigned config_brightness_enter : 1;
+
+	struct {
+		u32 last_b1_time;
+		u32 last_b2_time;
+		u32 last_b3_time;
+		u32 last_b4_time;
+		u32 last_delta;
+	} button_state;
 } sys_state_type;
 
 extern sys_state_type sys_state;

@@ -20,7 +20,7 @@
 #include "sleep.h"
 #include "common.h"
 
-#define DEBUG_NO_BATTERY
+//#define DEBUG_NO_BATTERY
 
 #define VOLTAGE_INVERSE 0x001F0000
 #define VOLTAGE_OFFSET  0

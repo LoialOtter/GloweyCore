@@ -56,7 +56,7 @@
  * IO pins assignments.
  */
 #define GPIOA_BUTTON                0U
-#define GPIOA_B2                    1U
+#define GPIOA_B3                    1U
 #define GPIOA_NA_A2                 2U
 #define GPIOA_NA_A3                 3U
 #define GPIOA_SPI_CS                4U
@@ -64,7 +64,7 @@
 #define GPIOA_SPI_DIN               6U
 #define GPIOA_SPI_DOUT              7U
 #define GPIOA_NA_A8                 8U
-#define GPIOA_B3                    9U
+#define GPIOA_B2                    9U
 #define GPIOA_B4                    10U
 #define GPIOA_NA_A11                11U
 #define GPIOA_NA_A12                12U

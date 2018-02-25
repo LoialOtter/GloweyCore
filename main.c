@@ -30,6 +30,9 @@
 
 //#define SIDEWAYS
 
+#define BUTTON_SHORT_TIME 100
+#define BUTTON_LONG_TIME  1200
+
 #define BUTTON_OFF_TIME 2
 #define BUTTON_ON_TIME 2
 #define BUTTON_PROGRAM_TIME 15
@@ -142,27 +145,59 @@ THD_TABLE_END
 /* Triggered when the button is pressed or released. The LED4 is set to ON.*/
 static void extCB_Buttons(EXTDriver *extp, expchannel_t channel) {
 	(void)extp;
+	uint32_t delta_time;
+	uint32_t current_time;
+	uint32_t event = 0;
 
-	if (channel == 0) {
-		if (button_power) {
-			if ((GPIOA->IDR & GPIOA_BUTTON) == 0) {
-				sys_state.button_counter = 0;
-				sys_state.button_short_press = 0;
-				sys_state.button_long_press = 0;
-				
-				if (!sys_state.charge_status_acknowledged_received) {
-					sys_state.charge_status_acknowledged = 1;
-				}
-				else {
-					button_power = 0;
+	chSysLockFromISR();
+	current_time = ST_CYCLECOUNT();
 
-					chSysLockFromISR();
-					chEvtSignalI(&nil.threads[NIL_THREAD_CTRL], CTRL_EVT_WAKEUP);
-					chSysUnlockFromISR();
-				}
-			}
+	if (channel == 15) {
+		event |= CTRL_EVT_CHARGE_ATTACHED;
+	}
+
+	else if (channel == 0) {
+		delta_time = current_time - sys_state.button_state.last_b1_time;
+		sys_state.button_state.last_b1_time = current_time;
+		if ((GPIOA->IDR & (1 << GPIOA_BUTTON)) != 0) {
+			if      (delta_time >= BUTTON_LONG_TIME)  event |= CTRL_EVT_LONG_B1;
+			else if (delta_time >= BUTTON_SHORT_TIME) event |= CTRL_EVT_SHORT_B1;
 		}
 	}
+
+	else if (channel == 9) {
+		delta_time = current_time - sys_state.button_state.last_b2_time;
+		sys_state.button_state.last_b2_time = current_time;
+		if ((GPIOA->IDR & (1 << GPIOA_B2)) != 0) {
+			if      (delta_time >= BUTTON_LONG_TIME)  event |= CTRL_EVT_LONG_B2;
+			else if (delta_time >= BUTTON_SHORT_TIME) event |= CTRL_EVT_SHORT_B2;
+		}
+	}
+	
+	else if (channel == 1) {
+		delta_time = current_time - sys_state.button_state.last_b3_time;
+		sys_state.button_state.last_b3_time = current_time;
+		if ((GPIOA->IDR & (1 << GPIOA_B3)) != 0) {
+			if      (delta_time >= BUTTON_LONG_TIME)  event |= CTRL_EVT_LONG_B3;
+			else if (delta_time >= BUTTON_SHORT_TIME) event |= CTRL_EVT_SHORT_B3;
+		}
+	}
+	
+	else if (channel == 10) {
+		delta_time = current_time - sys_state.button_state.last_b4_time;
+		sys_state.button_state.last_b4_time = current_time;
+		if ((GPIOA->IDR & (1 << GPIOA_B4)) != 0) {
+			if      (delta_time >= BUTTON_LONG_TIME)  event |= CTRL_EVT_LONG_B4;
+			else if (delta_time >= BUTTON_SHORT_TIME) event |= CTRL_EVT_SHORT_B4;
+		}
+	}
+
+	sys_state.button_state.last_delta = delta_time;
+	
+	if (event) {
+		chEvtSignalI(&nil.threads[NIL_THREAD_CTRL], event);
+	}
+	chSysUnlockFromISR();
 }
 
 static const EXTConfig extcfg = {
@@ -295,6 +330,7 @@ s32 inv_mag;
 
 void show_mode(mode_type mode, colour* out) {
 	switch (mode) {
+	case MODE_INVALID: // fall through to standard
 	case MODE_STANDARD:  out->raw = 0x00003F00; break; // out->red = 0x00; out->green = 0x00; out->blue = 0xFF; out->white = 0x00; break;
 	case MODE_RAINBOW:   out->raw = 0x3F000000; break; // out->red = 0x00; out->green = 0xFF; out->blue = 0x00; out->white = 0x00; break;
 	case MODE_SHIMERING: out->raw = 0x00000000; break; // out->red = 0x00; out->green = 0x00; out->blue = 0x00; out->white = 0x00; break;
@@ -460,6 +496,7 @@ void calculate_colours(void) {
 		
 		//========================================= MODES ============================================
 		switch (sys_state.mode) {
+		case MODE_INVALID: // fall through to standard
 		case MODE_STANDARD:      
 			colour_x = ((sys_state.colour_side.x * down) >> 14) + ((sys_state.colour_down.x * (0x3FFF-down)) >> 14);
 			colour_y = ((sys_state.colour_side.y * down) >> 14) + ((sys_state.colour_down.y * (0x3FFF-down)) >> 14);
@@ -496,6 +533,8 @@ void calculate_colours(void) {
 				palette[0].blue  = 255;
 				palette[0].white = 255;
 			}
+			break;
+		case MODE_CONFIG_BRIGHTNESS:
 			break;
 		}
 		//============================================================================================
@@ -674,21 +713,21 @@ void do_config_short_press(void) {
 	}
 }
 
-#define check_interrupt() palReadPad(GPIOA, GPIOA_BUTTON)
-
 void loadSettings(void) {
 	uint32_t eeprom_buf[10];
 	eeprom_read(0, 10, eeprom_buf);
-	sys_state.colour_down.raw   = eeprom_buf[EEPROM_ADDR_COLOUR_DOWN];
-	sys_state.colour_side.raw   = eeprom_buf[EEPROM_ADDR_COLOUR_SIDE];
-	sys_state.colour_action.raw = eeprom_buf[EEPROM_ADDR_COLOUR_ACTION];
-	sys_state.mode              = eeprom_buf[EEPROM_ADDR_MODE];
-	sys_state.brightness        = eeprom_buf[EEPROM_ADDR_BRIGHTNESS];
+	if (eeprom_buf[EEPROM_ADDR_COLOUR_DOWN]   != 0x00000000 && eeprom_buf[EEPROM_ADDR_COLOUR_DOWN]   != 0xFFFFFFFF) sys_state.colour_down.raw   = eeprom_buf[EEPROM_ADDR_COLOUR_DOWN];
+	if (eeprom_buf[EEPROM_ADDR_COLOUR_SIDE]   != 0x00000000 && eeprom_buf[EEPROM_ADDR_COLOUR_SIDE]   != 0xFFFFFFFF) sys_state.colour_side.raw   = eeprom_buf[EEPROM_ADDR_COLOUR_SIDE];
+	if (eeprom_buf[EEPROM_ADDR_COLOUR_ACTION] != 0x00000000 && eeprom_buf[EEPROM_ADDR_COLOUR_ACTION] != 0xFFFFFFFF) sys_state.colour_action.raw = eeprom_buf[EEPROM_ADDR_COLOUR_ACTION];
+	if (eeprom_buf[EEPROM_ADDR_MODE]          != 0x00000000 && eeprom_buf[EEPROM_ADDR_MODE]          != 0xFFFFFFFF) sys_state.mode              = eeprom_buf[EEPROM_ADDR_MODE];
+	if (eeprom_buf[EEPROM_ADDR_BRIGHTNESS]    != 0x00000000 && eeprom_buf[EEPROM_ADDR_BRIGHTNESS]    != 0xFFFFFFFF) sys_state.brightness        = eeprom_buf[EEPROM_ADDR_BRIGHTNESS];
 }
 
 THD_FUNCTION(controlThread, arg) {
 	(void) arg;
 	int i;
+	eventmask_t evt;
+	uint8_t wasCharging;
 	
 	accel_calibrate();
 	accel_config(&accel_run);
@@ -713,13 +752,109 @@ THD_FUNCTION(controlThread, arg) {
 	}
 	mag_IIR_filter = mag << MAG_IIR_LENGTH;
 	mag_average = mag;
-
+	
 	loadSettings();
 	
+	sys_state.last_state = sys_state.state;
+	
 	while (true) {
-		//eventmask_t evt = chEvtWaitAnyTimeout(ALL_EVENTS, TIME_INFINITE);
+		// wait for events
+		// time to wait is based on what state we're currently in
+		switch (sys_state.state) {
+		default:
+		case STATE_INIT:
+		case STATE_RUNNING:
+			evt = chEvtWaitAnyTimeout(ALL_EVENTS, MS2ST(50));
+			break;
+		case STATE_SLEEPING:
+		case STATE_CHARGESTATE:
+			evt = chEvtWaitAnyTimeout(ALL_EVENTS, MS2ST(2000));
+			break;
+		case STATE_UNDERVOLTAGE:
+			evt = chEvtWaitAnyTimeout(ALL_EVENTS, TIME_INFINITE);
+			break;
+		}
 		
-		if (!button_power) {
+		// check if we need to change state at all
+		switch (sys_state.state) {
+		default:
+		case STATE_INIT:
+			sys_state.state = STATE_RUNNING;
+			// fall through to running
+		case STATE_RUNNING:
+			if ((evt & (CTRL_EVT_SHORT_B1 | CTRL_EVT_SHORT_B2)) != 0) {
+				if (sys_state.config_state == CONFIG_OFF) {
+					evt = 0; // finished handling buttons
+					if (pwr.batteryCharging) {
+						sys_state.state = STATE_CHARGESTATE;
+					}
+					else {
+						sys_state.state = STATE_SLEEPING;
+					}
+				}
+			}
+			
+			if (!pwr.batteryCharging && pwr.batteryState <= PWR_BATTERY_EMPTY) {
+				sys_state.state = STATE_SLEEPING;
+			}
+			break;
+			
+		case STATE_CHARGESTATE:
+			if ((evt & (CTRL_EVT_SHORT_B1 |
+			            CTRL_EVT_SHORT_B2 |
+			            CTRL_EVT_SHORT_B3 |
+			            CTRL_EVT_SHORT_B4)) != 0) {
+				evt = 0; // finished handling buttons
+				sys_state.state = STATE_SLEEPING;
+			}
+			if ((evt & (CTRL_EVT_LONG_B1 |
+			            CTRL_EVT_LONG_B2 |
+			            CTRL_EVT_LONG_B3 |
+			            CTRL_EVT_LONG_B4)) != 0) {
+				evt = 0; // finished handling buttons
+				sys_state.state = STATE_RUNNING;
+			}
+
+			if (!pwr.batteryCharging) {
+				sys_state.state = STATE_SLEEPING;
+			}
+			
+			break;
+			
+		case STATE_SLEEPING:
+			if ((evt & (CTRL_EVT_SHORT_B1 | CTRL_EVT_LONG_B1 |
+			            CTRL_EVT_SHORT_B2 | CTRL_EVT_LONG_B2 |
+			            CTRL_EVT_SHORT_B3 | CTRL_EVT_LONG_B3 |
+			            CTRL_EVT_SHORT_B4 | CTRL_EVT_LONG_B4)) != 0) {
+				evt = 0; // finished handling buttons
+				sys_state.state = STATE_RUNNING;
+			}
+
+			if ((evt & CTRL_EVT_CHARGE_ATTACHED) != 0 ||
+			    (pwr.batteryCharging && !wasCharging)) {
+				sys_state.state = STATE_CHARGESTATE;
+			}
+			
+			if (!pwr.batteryCharging && pwr.batteryState <= PWR_BATTERY_LP_SD) {
+				sys_state.state = STATE_UNDERVOLTAGE;
+			}
+			break;
+			
+		case STATE_UNDERVOLTAGE:
+			if ((evt & CTRL_EVT_CHARGE_ATTACHED) != 0 ||
+			    (pwr.batteryCharging && !wasCharging)) {
+				sys_state.state = STATE_CHARGESTATE;
+			}
+			break;
+		}		
+		
+		// now for the main control and state
+		if (sys_state.state == STATE_RUNNING) {
+			if (sys_state.last_state != sys_state.state) {
+				accel_calibrate();
+				accel_config(&accel_run);
+			}
+			
 #ifdef SIDEWAYS
 			get_accel(&accel.z, &accel.x, &accel.y);
 #else
@@ -730,110 +865,54 @@ THD_FUNCTION(controlThread, arg) {
 			accel.y >>= 2;
 			accel.z >>= 2;
 #endif
-		}
 
-		//-------------------------------
-		// check button
-		sys_state.charge_status_acknowledged = 0;
-		sys_state.button_short_press = 0;
-		sys_state.button_long_press = 0;
-		sys_state.power_toggle = 0;
-		if (sys_state.button_wait_til_release) {
-			if (check_interrupt()) 
-				sys_state.button_wait_til_release = 0;
-			
-			chThdSleepMilliseconds(100);
-		}
-		else {
-			if (!check_interrupt()) {
-				if (sys_state.button_counter < 255) sys_state.button_counter++;
+			if ((evt & (CTRL_EVT_LONG_B1 | CTRL_EVT_LONG_B2)) != 0) {
+				do_config_long_press();
+				sys_state.config_time = 0;
 			}
-			else {
-				if (sys_state.button_counter > BUTTON_PROGRAM_TIME) {
-					sys_state.button_long_press = 1;
-				}
-				else if (sys_state.button_counter > BUTTON_OFF_TIME) {
-					sys_state.button_short_press = 1;
-				}
-				sys_state.button_counter = 0;
-			}
-			
-			if (button_power) {
-				accel_config(&accel_off);
-
-				while(button_power) {
-					if (sys_state.charge_status_acknowledged) {
-						sys_state.charge_status_acknowledged_received = 1;
-					}
-					
-					if (pwr.batteryCharging && !sys_state.charge_status_acknowledged && charging_colours[pwr.batteryState].raw != 0) {
-						palette[0].raw   = charging_colours[pwr.batteryState].raw;
-						chEvtSignal(&nil.threads[NIL_THREAD_LED], LED_EVT_UPDATE);
-						chEvtWaitAnyTimeout(ALL_EVENTS, MS2ST(500));
-					}
-					else {
-						chEvtSignal(&nil.threads[NIL_THREAD_LED], LED_EVT_SHUTDOWN);
-						chEvtWaitAnyTimeout(ALL_EVENTS, TIME_INFINITE);
-					}
-				}
-
-				button_power = 0;
-				sys_state.button_wait_til_release = 1;
-				sys_state.active_time = 0;
-				sys_state.charge_status_acknowledged_received = 0;
-				
-				accel_calibrate();
-				accel_config(&accel_run);
-			}
-			else {
-				
-				// now decide what to do
-				if (sys_state.button_long_press) {
-					do_config_long_press();
+			if (sys_state.config_state != CONFIG_OFF) {
+				if ((evt & (CTRL_EVT_SHORT_B1 | CTRL_EVT_SHORT_B2)) != 0) {
+					do_config_short_press();
 					sys_state.config_time = 0;
 				}
-				if (sys_state.button_short_press) {
-					if (sys_state.config_state != CONFIG_OFF) {
-						do_config_short_press();
-						sys_state.config_time = 0;
-					}
-					else {
-						sys_state.power_toggle = 1;
-					}
+			}
+			
+			if (sys_state.config_state != CONFIG_OFF) {
+				if (sys_state.config_time < 255) sys_state.config_time++;
+			}
+			else {
+				sys_state.config_time = 0;
+			}
+			
+			if (sys_state.active_time < BATTERY_STATUS_TIME) {
+				sys_state.active_time++;
+				if (battery_status_colours[pwr.batteryState].raw != 0) {
+					palette[0].raw   = battery_status_colours[pwr.batteryState].raw;
 				}
-				// should we turn off?
-				if (sys_state.power_toggle) {
-					//go_to_off_state();
-					button_power = 1;
-					chEvtSignal(&nil.threads[NIL_THREAD_LED], LED_EVT_SHUTDOWN);
-					sys_state.active_time = 0;
-				}
-				else {
-					
-					if (sys_state.config_state != CONFIG_OFF) {
-						if (sys_state.config_time < 255) sys_state.config_time++;
-					}
-					else {
-						sys_state.config_time = 0;
-					}
-
-					if (sys_state.active_time < BATTERY_STATUS_TIME) {
-						sys_state.active_time++;
-						if (battery_status_colours[pwr.batteryState].raw != 0) {
-							palette[0].raw   = battery_status_colours[pwr.batteryState].raw;
-						}
-					}
-					else {
-						calculate_colours();
-					}
-					
-					chEvtSignal(&nil.threads[NIL_THREAD_LED], LED_EVT_UPDATE);
-					
-					chThdSleepMilliseconds(50);
-				}
+			}
+			else {
+				calculate_colours();
+			}
+			
+			chEvtSignal(&nil.threads[NIL_THREAD_LED], LED_EVT_UPDATE);
+		}
+		else if (sys_state.state == STATE_CHARGESTATE) {
+			if (sys_state.last_state != sys_state.state) {
+				accel_config(&accel_off);
+			}
+			
+			palette[0].raw   = charging_colours[pwr.batteryState].raw;
+			chEvtSignal(&nil.threads[NIL_THREAD_LED], LED_EVT_UPDATE);
+		}
+		else {
+			if (sys_state.last_state != sys_state.state) {
+				accel_config(&accel_off);
+				chEvtSignal(&nil.threads[NIL_THREAD_LED], LED_EVT_SHUTDOWN);
 			}
 		}
 		
+		sys_state.last_state = sys_state.state;
+		wasCharging = pwr.batteryCharging;
 	}
 }
 
